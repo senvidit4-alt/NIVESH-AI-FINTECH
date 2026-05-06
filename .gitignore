@@ -1,0 +1,45 @@
+# ── Secrets & environment ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+finsight-ui/.env.local
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.Python
+
+# ── Database / local data ─────────────────────────────────────
+portfolio.db
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Next.js / Node ────────────────────────────────────────────
+finsight-ui/.next/
+finsight-ui/out/
+finsight-ui/node_modules/
+finsight-ui/npm-debug.log*
+finsight-ui/yarn-debug.log*
+finsight-ui/yarn-error.log*
+finsight-ui/*.tsbuildinfo
+
+# ── OS / Editor ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# ── Misc ──────────────────────────────────────────────────────
+*.pem
+*.log
+floooow.jpg.jpeg

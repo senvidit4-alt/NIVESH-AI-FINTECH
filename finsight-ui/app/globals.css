@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary:     #020408;
+  --bg-secondary:   #080d14;
+  --bg-card:        rgba(8, 15, 25, 0.8);
+  --bg-card-hover:  rgba(12, 22, 38, 0.9);
+  --border:         rgba(30, 58, 95, 0.4);
+  --border-hover:   rgba(59, 130, 246, 0.5);
+  --accent-blue:    #3b82f6;
+  --accent-green:   #10b981;
+  --accent-red:     #ef4444;
+  --accent-amber:   #f59e0b;
+  --accent-purple:  #8b5cf6;
+  --text-primary:   #f1f5f9;
+  --text-secondary: #64748b;
+  --text-muted:     #334155;
+  --mono:           'JetBrains Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.glass:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card-hover);
+}
+
+.glow-blue  { box-shadow: 0 0 20px rgba(59,130,246,0.15); }
+.glow-green { box-shadow: 0 0 20px rgba(16,185,129,0.15); }
+.glow-red   { box-shadow: 0 0 20px rgba(239,68,68,0.15);  }
+.glow-amber { box-shadow: 0 0 20px rgba(245,158,11,0.15); }
+
+.mono { font-family: var(--mono); }
+
+/* Ticker scroll animation */
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  display: flex;
+  animation: ticker-scroll 40s linear infinite;
+  width: max-content;
+}
+.ticker-track:hover { animation-play-state: paused; }
+
+/* Shimmer skeleton */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #0f1923 25%, #1a2535 50%, #0f1923 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Pulse dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.8); }
+}
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 2px; }
+
+/* Number counter */
+.count-up { font-variant-numeric: tabular-nums; }
