@@ -32,8 +32,8 @@ except Exception:
 LLM_TRACK = os.environ.get("LLM_TRACK", "auto")   # "auto" | "groq" | "openai" | "anthropic"
 
 from typing import TypedDict, Annotated
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import torch
+# from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+# import torch
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -381,7 +381,7 @@ def _load_finbert_background():
         logger.warning(f"[FINBERT] Failed: {e}")
 
 import threading
-threading.Thread(target=_load_finbert_background, daemon=True).start()
+# threading.Thread(target=_load_finbert_background, daemon=True).start()
 
 def analyze_sentiment_finbert(texts):
     if finbert_pipeline and texts:
