@@ -509,12 +509,33 @@ def get_price_cached(symbol):
         save_price_snapshot(symbol, result["price"], result.get("source","unknown"))
     return result
 
+def get_yahoo_history(symbol, range="1y"):
+    try:
+        import requests, pandas as pd
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={range}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=5)
+        r.raise_for_status()
+        data = r.json().get("chart", {}).get("result", [])
+        if not data: return pd.DataFrame()
+        timestamps = data[0].get("timestamp", [])
+        closes = data[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        if not closes: return pd.DataFrame()
+        df = pd.DataFrame({"Close": closes}, index=pd.to_datetime(timestamps, unit="s"))
+        return df.dropna()
+    except Exception as e:
+        try:
+            import yfinance as yf
+            return yf.Ticker(symbol).history(period=range, timeout=5).dropna(subset=["Close"])
+        except:
+            return pd.DataFrame()
+
 # ══════════════════════════════════════════════════════════════
 #  7. RISK METRICS: VaR & CVaR
 # ══════════════════════════════════════════════════════════════
 def calculate_var_cvar(symbol: str, confidence: float = 0.95) -> dict:
     try:
-        hist = yf.Ticker(symbol).history(period="1y", timeout=5)
+        hist = get_yahoo_history(symbol, "1y")
         if hist.empty or len(hist) < 30:
             return {"var_95": None, "cvar_95": None, "error": "Insufficient data"}
         returns = hist["Close"].pct_change().dropna()
@@ -556,7 +577,7 @@ def get_stock_price(symbol: str) -> str:
 @tool
 def analyze_stock_trend(symbol: str) -> str:
     """Analyze stock trend using moving average."""
-    data = yf.Ticker(symbol).history(period="1mo", timeout=5)
+    data = get_yahoo_history(symbol, "1mo")
     if data.empty: return "No data."
     data["MA5"] = data["Close"].rolling(5).mean()
     trend = "Uptrend" if data["Close"].iloc[-1] > data["MA5"].iloc[-1] else "Downtrend"
@@ -565,7 +586,7 @@ def analyze_stock_trend(symbol: str) -> str:
 @tool
 def technical_analysis(symbol: str) -> str:
     """RSI, MA20, MA50 indicators."""
-    data = yf.Ticker(symbol).history(period="3mo", timeout=5)
+    data = get_yahoo_history(symbol, "3mo")
     if data.empty: return f"No data for {symbol}."
     close = data['Close'].squeeze()
     ma20 = close.rolling(20).mean().iloc[-1]
@@ -576,8 +597,11 @@ def technical_analysis(symbol: str) -> str:
 @tool
 def compare_stocks(symbol1: str, symbol2: str) -> str:
     """Compares 1-month performance of two stocks."""
-    s1 = yf.download(symbol1, period="1mo", timeout=5)['Close']
-    s2 = yf.download(symbol2, period="1mo", timeout=5)['Close']
+    s1 = get_yahoo_history(symbol1, "1mo")
+    s2 = get_yahoo_history(symbol2, "1mo")
+    if s1.empty or s2.empty: return "Data missing for comparison."
+    s1 = s1['Close']
+    s2 = s2['Close']
     c1 = ((s1.iloc[-1] - s1.iloc[0]) / s1.iloc[0]) * 100
     c2 = ((s2.iloc[-1] - s2.iloc[0]) / s2.iloc[0]) * 100
     winner = symbol1 if c1 > c2 else symbol2
@@ -650,8 +674,7 @@ def data_fetch_node(state):
         
     price_data = get_price_cached(symbol)
     try:
-        hist = yf.Ticker(symbol).history(period="3mo", timeout=5)
-        hist = hist.dropna(subset=["Close"])
+        hist = get_yahoo_history(symbol, "3mo")
         if not hist.empty:
             close = hist["Close"].squeeze()
             ma20 = close.rolling(20).mean().iloc[-1]
@@ -703,8 +726,7 @@ def risk_node(state):
         symbol = f"{symbol}.NS"
         
     try:
-        hist = yf.Ticker(symbol).history(period="1y", timeout=5)
-        hist = hist.dropna(subset=["Close"])
+        hist = get_yahoo_history(symbol, "1y")
         if not hist.empty and len(hist) > 30:
             ret = hist["Close"].pct_change().dropna()
             vol = ret.std() * (252**0.5) * 100

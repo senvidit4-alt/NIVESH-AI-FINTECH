@@ -29,7 +29,7 @@ from logic_agent import (
     get_portfolio_from_db, cache_get, cache_set,
     calculate_var_cvar, get_sector_breakdown,
     get_news_with_fallback, analyze_sentiment_finbert,
-    llm, DB_PATH, get_db_connection, financial_graph
+    llm, DB_PATH, get_db_connection, financial_graph, get_yahoo_history
 )
 import sqlite3
 
@@ -181,7 +181,7 @@ def get_historical_returns(symbols: list, period: str = "1y") -> pd.DataFrame:
     returns_data = {}
     for symbol in symbols:
         try:
-            hist = yf.Ticker(symbol).history(period=period)
+            hist = get_yahoo_history(symbol, period)
             if not hist.empty:
                 returns_data[symbol] = hist["Close"].pct_change().dropna()
         except Exception as e:
@@ -239,7 +239,7 @@ def optimize_portfolio(symbols: list, risk_tolerance: str = "medium") -> dict:
 
 def calculate_sharpe_ratio(symbol: str, risk_free: float = 0.065) -> dict:
     try:
-        hist = yf.Ticker(symbol).history(period="1y")
+        hist = get_yahoo_history(symbol, "1y")
         if hist.empty:
             return {"sharpe": None, "error": "No data"}
         returns = hist["Close"].pct_change().dropna()
@@ -467,7 +467,7 @@ async def get_portfolio_risk(req: PortfolioRequest, request: Request):
             total_value += current_value
 
             try:
-                hist = yf.Ticker(symbol).history(period="1y")
+                hist = get_yahoo_history(symbol, "1y")
                 if not hist.empty:
                     returns = hist["Close"].pct_change().dropna().tolist()
                     portfolio_returns.extend([r for r in returns if r == r])  # filter nan
