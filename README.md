@@ -14,27 +14,27 @@ Nivesh AI is built using a highly optimized, decoupled architecture allowing for
 
 ```mermaid
 graph TD
-    subgraph Frontend Client
+    subgraph Frontends [Frontend Client]
         UI[Vite + React 19 App - Vercel]
     end
 
-    subgraph Backend Services
+    subgraph Backend [Backend Services]
         API[FastAPI Backend - Render]
     end
 
-    subgraph Databases & State
+    subgraph DB [Databases & State]
         DB_SQL[SQLite Database]
         State[In-Memory LangGraph State]
     end
 
-    subgraph AI Agent Engine (LangGraph Pipeline)
+    subgraph Agent [AI Agent Engine]
         Node1[Research Node: Stock Extraction] --> Node2[Data Fetch Node: Technical Indicators]
         Node2 --> Node3[Sentiment Node: News Sentiment]
         Node3 --> Node4[Risk Node: VaR & CVaR]
         Node4 --> Node5[Decision Node: AI Recommendation]
     end
 
-    subgraph External Financial API Layer
+    subgraph APIs [External Financial API Layer]
         yF[Yahoo Finance Custom HTTP Client]
         AV[AlphaVantage API]
         FMP[Financial Modeling Prep]
