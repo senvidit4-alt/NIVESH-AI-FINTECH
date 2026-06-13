@@ -426,15 +426,18 @@ async def get_news_endpoint(symbol: str, request: Request):
     check_rate_limit(request.client.host)
     try:
         sym = symbol.upper().strip()
-        
-        # Fetch news from Yahoo Finance search API using requests with strict 1.2s timeout
+        search_query = sym
+        if sym in ["NIFTY", "^NSEI", "GLOBAL"]:
+            search_query = "stock market news"
+            
+        # Fetch news from Yahoo Finance search API using requests
         loop = asyncio.get_event_loop()
         def _get_yf_news():
             try:
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
-                url = f"https://query2.finance.yahoo.com/v1/finance/search?q={sym}&newsCount=10"
+                url = f"https://query2.finance.yahoo.com/v1/finance/search?q={search_query}&newsCount=10"
                 r = req_lib.get(url, headers=headers, timeout=5.0)
                 r.raise_for_status()
                 return r.json().get("news", [])
