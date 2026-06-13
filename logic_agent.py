@@ -445,11 +445,24 @@ def fetch_with_retry(func, retries=2, delay=1.0):
     return None
 
 def get_price_yfinance(symbol):
-    data = yf.Ticker(symbol).history(period="5d", timeout=5)
-    if data.empty: raise ValueError(f"No yFinance data for {symbol}")
-    close_prices = data["Close"].dropna()
-    if close_prices.empty: raise ValueError(f"All yFinance close prices are NaN for {symbol}")
-    return round(float(close_prices.iloc[-1]), 2)
+    try:
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
+        r = requests.get(url, headers=headers, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        result = data.get("chart", {}).get("result", [])
+        if not result:
+            raise ValueError(f"No yFinance data for {symbol}")
+        price = result[0]["meta"]["regularMarketPrice"]
+        return round(float(price), 2)
+    except Exception as e:
+        logger.warning(f"Direct Yahoo request failed for {symbol}: {e}")
+        data = yf.Ticker(symbol).history(period="5d", timeout=5)
+        if data.empty: raise ValueError(f"No yFinance data for {symbol}")
+        close_prices = data["Close"].dropna()
+        if close_prices.empty: raise ValueError(f"All yFinance close prices are NaN for {symbol}")
+        return round(float(close_prices.iloc[-1]), 2)
 
 def get_price_alpha_vantage(symbol):
     clean = symbol.replace(".NS","").replace(".BO","")

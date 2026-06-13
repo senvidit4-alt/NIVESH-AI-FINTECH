@@ -535,10 +535,15 @@ async def market_summary(request: Request):
         summary = []
         for name, sym in symbols.items():
             try:
-                data = yf.Ticker(sym).history(period="2d")
-                if not data.empty and len(data) >= 2:
-                    prev = data["Close"].iloc[-2]
-                    curr = data["Close"].iloc[-1]
+                url = f"https://query2.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=2d"
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                r = req_lib.get(url, headers=headers, timeout=5)
+                r.raise_for_status()
+                result = r.json().get("chart", {}).get("result", [])
+                if result:
+                    meta = result[0]["meta"]
+                    curr = meta["regularMarketPrice"]
+                    prev = meta["chartPreviousClose"]
                     chg = curr - prev
                     chg_pct = (chg / prev) * 100
                     summary.append({
@@ -547,8 +552,8 @@ async def market_summary(request: Request):
                         "change_pct": round(chg_pct, 2),
                         "direction": "up" if chg > 0 else "down",
                     })
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"market_summary failed for {sym}: {e}")
         result = {"status": "success", "market": "NSE/BSE", "indices": summary}
         if summary:
             cache_set("market_summary", result, ttl=15)
