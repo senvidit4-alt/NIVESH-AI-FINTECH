@@ -1,6 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "$(VITE_AGENT_API_URL)/$1" }
+    { "source": "/api/(.*)", "destination": "$(VITE_AGENT_API_URL)/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
