@@ -215,6 +215,14 @@ def init_sqlite():
         price REAL,
         source TEXT,
         fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS global_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        name TEXT,
+        change_pct REAL,
+        price REAL,
+        alert_type TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     conn.commit()
     conn.close()
 

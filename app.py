@@ -395,7 +395,7 @@ async def get_news_endpoint(symbol: str, request: Request):
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
                 url = f"https://query2.finance.yahoo.com/v1/finance/search?q={sym}&newsCount=10"
-                r = req_lib.get(url, headers=headers, timeout=1.2)
+                r = req_lib.get(url, headers=headers, timeout=5.0)
                 r.raise_for_status()
                 return r.json().get("news", [])
             except Exception as e:
@@ -405,7 +405,7 @@ async def get_news_endpoint(symbol: str, request: Request):
         try:
             yfinance_news = await asyncio.wait_for(
                 loop.run_in_executor(None, _get_yf_news),
-                timeout=1.5
+                timeout=6.0
             )
         except asyncio.TimeoutError:
             logger.warning(f"[NEWS] Direct Yahoo news fetch timed out for {sym}. Using fallback.")
