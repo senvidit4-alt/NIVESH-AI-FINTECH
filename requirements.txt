@@ -8,7 +8,7 @@ langchain-openai==0.1.17
 langchain-google-genai==1.0.6
 google-generativeai
 langgraph==0.0.55
-langchain-core==0.2.0
+langchain-core<0.2.0
 
 # Financial data
 yfinance==0.2.40
