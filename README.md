@@ -1,29 +1,30 @@
-# FinSight AI 📈
+# Nivesh AI Fintech 📈🚀
 > **Next-Gen Financial Research AI Agent & Portfolio Tracker**  
 > Powered by **LangGraph** (StateGraph Pipeline), **ProsusAI/FinBERT**, and **Modern Portfolio Theory (MPT)**.
 
-FinSight AI is an elite financial research assistant and portfolio optimization dashboard specifically tailored for Indian stock markets (NSE/BSE) as well as global equities. It leverages multi-agent graph architectures, cutting-edge sentiment models, and mathematical optimization models to give users institutional-grade insights.
+Nivesh AI is an elite financial research assistant and portfolio optimization dashboard specifically tailored for Indian stock markets (NSE/BSE) as well as global equities. It leverages multi-agent graph architectures, cutting-edge sentiment models, and mathematical optimization models to give users institutional-grade insights with zero delays.
+
+![Nivesh AI Dashboard](https://github.com/user-attachments/assets/nivesh-dashboard-mockup)
 
 ---
 
 ## 🏗️ System Architecture
 
-FinSight AI is built using a dual-frontend architecture designed to support both modern, interactive web applications and quick dashboard prototypes.
+Nivesh AI is built using a highly optimized, decoupled architecture allowing for real-time frontend interactions backed by a powerful asynchronous AI pipeline.
 
 ```mermaid
 graph TD
-    subgraph Frontends
-        UI[Next.js Web App - Port 3000]
-        ST[Streamlit Dashboard - Port 8501]
+    subgraph Frontend Client
+        UI[Vite + React 19 App - Vercel]
     end
 
     subgraph Backend Services
-        API[FastAPI Backend - Port 8001]
+        API[FastAPI Backend - Render]
     end
 
-    subgraph Databases & Caching
-        DB_SQL[PostgreSQL / SQLite]
-        Cache[Redis / FakeRedis]
+    subgraph Databases & State
+        DB_SQL[SQLite Database]
+        State[In-Memory LangGraph State]
     end
 
     subgraph AI Agent Engine (LangGraph Pipeline)
@@ -33,28 +34,25 @@ graph TD
         Node4 --> Node5[Decision Node: AI Recommendation]
     end
 
-    subgraph External Financial API Fallbacks
-        yF[yFinance API]
+    subgraph External Financial API Layer
+        yF[Yahoo Finance Custom HTTP Client]
         AV[AlphaVantage API]
         FMP[Financial Modeling Prep]
     end
 
     UI -->|HTTP / WS / SSE| API
-    ST -->|Direct Library Calls| Node1
     API -->|Invokes| Node1
     
-    Node2 -->|Cache Check| Cache
     Node2 -->|Fetch Price| External_API_Gate[Price Fallback Engine]
     External_API_Gate --> yF
     External_API_Gate --> AV
     External_API_Gate --> FMP
     
     Node3 -->|NLP Sentiment| FinBERT[ProsusAI / FinBERT Model]
-    Node3 -->|Fallback NLP| TextBlob[TextBlob Sentiment]
     
     Node4 -->|Historical Returns| yF
     
-    Node5 -->|Synthesize Insights| LLM[LLM: Claude 3.5 / GPT-4o / Llama3]
+    Node5 -->|Synthesize Insights| LLM[LLM: Groq Llama 3 70B / OpenAI]
     
     API --> DB_SQL
 ```
@@ -63,40 +61,42 @@ graph TD
 
 ## ✨ Key Features
 
-* **🤖 Conversational AI Chatbot**: A natural language interface that allows users to interact with the LangGraph pipeline, query portfolio metrics, and get real-time market insights via an intuitive chat UI.
+* **🤖 Conversational AI Chatbot**: A natural language interface that allows users to interact with the LangGraph pipeline, query portfolio metrics, and get real-time market insights via an intuitive chat UI with complete conversation memory.
 * **🧠 LangGraph 5-Node Agent Pipeline**: Routes stock analysis queries through a structured pipeline:
   1. `research`: Extracts and normalizes stock symbols (appending `.NS` for NSE, `.BO` for BSE).
-  2. `data_fetch`: Captures latest prices and technical metrics (SMA 20, SMA 50, RSI).
+  2. `data_fetch`: Captures latest prices and technical metrics (SMA 20, SMA 50, RSI) using a robust HTTP client bypassing standard API rate limits.
   3. `sentiment`: Pulls query-related news and performs NLP sentiment analysis.
   4. `risk`: Conducts annualized return, volatility, Sharpe Ratio, and historical risk simulations.
   5. `decision`: Synthesizes all data points into a final buy/sell/hold outlook.
-* **📰 Advanced Sentiment Analysis**: Employs **ProsusAI/FinBERT** (a BERT model fine-tuned for financial sentiment) on headlines retrieved via NewsAPI, falling back automatically to TextBlob and DuckDuckGo Search.
-* **📈 Modern Portfolio Theory (MPT) Optimization**: Computes maximum Sharpe Ratio weight allocations for custom portfolios using SLSQP numerical optimization. Also simulates 500+ random allocations to plot the **Efficient Frontier**.
-* **🛡️ Risk Analytics**: Calculates advanced metrics including:
+* **🌍 Automatic Global Alerts & News**: Features a background engine running 24/7 to monitor major global and domestic indices/stocks. Detects breakouts and crashes (>1% movements) and pushes them instantly to the dashboard, along with live worldwide stock market news.
+* **📈 Modern Portfolio Theory (MPT) Optimization**: Computes maximum Sharpe Ratio weight allocations for custom portfolios using SLSQP numerical optimization. Also simulates random allocations to plot the **Efficient Frontier**.
+* **🛡️ Institutional Risk Analytics**: Calculates advanced metrics including:
   * Value at Risk (**VaR 95%**) and Conditional Value at Risk (**CVaR 95%**).
   * Volatility (Standard Deviation) & Sharpe Ratio.
   * Asset Sector Breakdown and Diversification Scores.
-* **🔄 Live Updates & Background Tasks**:
-  * Real-time WebSocket connection (`/ws/market-updates`) and Server-Sent Events (SSE) streaming live ticker data.
-  * Background price alert monitoring that runs continuously to check price conditions.
-* **💾 Persistent Watchlist & Alerts**: Fully integrates with **PostgreSQL** in production and **SQLite** for local development.
+* **🔄 Live Updates & WebSockets**:
+  * Real-time WebSocket connection (`/ws/market-updates`) streaming live ticker data.
+  * Automatic fallback and reconnect policies to ensure 100% uptime.
 
 ---
 
 ## 💻 Tech Stack
 
-### Backend & AI
-* **Framework**: FastAPI (Python 3.11)
+### Backend & AI (Render)
+* **Framework**: FastAPI (Python 3.11+)
 * **Agent Framework**: LangGraph & LangChain Core
-* **LLM Engine**: Priority list: Claude 3.5 Sonnet ➔ OpenAI GPT-4o ➔ Groq Llama 3 (70B)
-* **NLP Models**: Hugging Face Transformers (`ProsusAI/finbert`), PyTorch, TextBlob
-* **Financial Math**: SciPy (Optimization), TA (Technical Analysis library), Pandas, NumPy, yFinance
-* **Database**: PostgreSQL (Production) / SQLite (Dev)
-* **Cache**: Redis / FakeRedis
+* **LLM Engine**: Groq Llama-3.3-70b-versatile (Blazing Fast Inference)
+* **NLP Models**: Hugging Face Transformers (`ProsusAI/finbert`)
+* **Financial Math**: SciPy (Optimization), TA (Technical Analysis library), Pandas, NumPy
+* **Database**: SQLite
+* **Custom Clients**: Bypass blocks via direct HTTP session handling and User-Agent spoofing for financial data APIs.
 
-### Frontends
-* **Next.js Web App**: Next.js 14, React 18, Zustand (State Management), TailwindCSS, Recharts, Framer Motion (Animations), Lucide Icons
-* **Streamlit Dashboard**: Streamlit 1.35, Plotly (Candlesticks, OBV, Bollinger Bands, Efficient Frontier), Matplotlib
+### Frontend (Vercel)
+* **Framework**: React 19 + Vite
+* **Routing**: TanStack Router
+* **Styling & UI**: TailwindCSS v4, Radix UI primitives, class-variance-authority
+* **Animations**: Framer Motion & GSAP
+* **Charts**: Recharts
 
 ---
 
@@ -107,28 +107,22 @@ graph TD
 * Node.js 20+
 
 ### 🔑 Setup Environment Variables
-Create a `.env` file in the root directory and a `.env.local` inside `finsight-ui/`.
+Create a `.env` file in the root directory for the backend and a `.env` inside `nivesh-frontend/` for the frontend.
 
-**Root `.env` Configuration:**
+**Backend Root `.env` Configuration:**
 ```ini
 GROQ_API_KEY=your_groq_api_key
 OPENAI_API_KEY=your_openai_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
 NEWS_API_KEY=your_news_api_key
 ALPHA_VANTAGE_KEY=demo
 FMP_KEY=demo
-REDIS_URL=
-DATABASE_URL=
-API_SECRET_TOKEN=
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 LLM_TRACK=auto
 ```
 
-**Frontend `finsight-ui/.env.local` Configuration:**
+**Frontend `nivesh-frontend/.env` Configuration:**
 ```ini
-NEXT_PUBLIC_API_URL=http://localhost:8001
-NEXT_PUBLIC_WS_URL=ws://localhost:8001/ws/market-updates
-NEXT_PUBLIC_API_TOKEN=
+VITE_AGENT_API_URL=http://localhost:8000
+VITE_API_TOKEN=your_secret_token_here
 ```
 
 ---
@@ -140,46 +134,27 @@ NEXT_PUBLIC_API_TOKEN=
 # Install dependencies
 pip install -r requirements.txt
 
-# Start backend server
-python -m uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+# Start backend server (runs on port 8000)
+python app.py
 ```
 
-#### 2. Setup Next.js Frontend
+#### 2. Setup React Frontend
 ```bash
-cd finsight-ui
+cd nivesh-frontend
 npm install
 npm run dev
 ```
-*Frontend runs on http://localhost:3000*
-
-#### 3. Setup Streamlit Dashboard (Alternative Interface)
-```bash
-# Launch Streamlit app
-streamlit run main.py
-```
-*Streamlit runs on http://localhost:8501*
-
-*Note: Windows users can simply run the provided `dev.bat` script to start both the Next.js Frontend and FastAPI Backend automatically.*
+*Frontend runs on http://localhost:5173*
 
 ---
 
-## 🐳 Docker Deployment
+## ☁️ Cloud Deployment
 
-The entire system—including Redis, PostgreSQL, FastAPI Backend, Next.js Web App, and Streamlit—can be booted up with a single Docker Compose command:
-
-```bash
-docker-compose up --build
-```
-
-### Port Mappings in Container Setup:
-* **Next.js Web App**: http://localhost:3000
-* **Streamlit Dashboard**: http://localhost:8501
-* **FastAPI Backend (API)**: http://localhost:8001
-* **Swagger API Documentation**: http://localhost:8001/docs
-* **PostgreSQL Database**: Port 5432
-* **Redis Cache**: Port 6379
+The project is natively configured for easy deployment on **Vercel** (Frontend) and **Render** (Backend).
+1. Set `VITE_AGENT_API_URL=https://<your-render-app>.onrender.com` in Vercel environment variables.
+2. Ensure the UptimeRobot script is linked to `https://<your-render-app>.onrender.com/health` to prevent backend cold starts on Render's free tier.
 
 ---
 
 ## ⚠️ Disclaimer
-*This application is for educational and hackathon submission purposes only. None of the recommendations, reports, or portfolio optimization metrics generated by FinSight AI constitute official financial, tax, or investment advice.*
+*This application is for educational and hackathon submission purposes only. None of the recommendations, reports, or portfolio optimization metrics generated by Nivesh AI constitute official financial, tax, or investment advice.*
