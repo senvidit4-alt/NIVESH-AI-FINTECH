@@ -664,7 +664,7 @@ class AgentState(TypedDict):
 def research_node(state):
     logger.info("[NODE 1] Research...")
     msg = llm.invoke([
-        SystemMessage(content="Extract Indian stock ticker. Add .NS for NSE, .BO for BSE. Return ONLY ticker. If none, return NIFTY50."),
+        SystemMessage(content="Extract Indian stock tickers. Add .NS for NSE, .BO for BSE. Return ONLY the tickers separated by commas (e.g. RELIANCE.NS, TCS.NS). If none, return NIFTY50."),
         HumanMessage(content=state["query"])
     ])
     symbol = msg.content.strip().upper()
@@ -674,36 +674,43 @@ def research_node(state):
 
 def data_fetch_node(state):
     logger.info("[NODE 2] Data fetch...")
-    symbol = state["symbol"]
+    symbols_raw = state["symbol"].split(",")
+    results = []
     
-    # Ensure proper Indian stock formatting (.NS for NSE)
-    if symbol and "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
-        symbol = f"{symbol}.NS"
+    for raw_sym in symbols_raw:
+        symbol = raw_sym.strip()
+        if not symbol: continue
         
-    price_data = get_price_cached(symbol)
-    try:
-        hist = get_yahoo_history(symbol, "3mo")
-        if not hist.empty:
-            close = hist["Close"].squeeze()
-            ma20 = close.rolling(20).mean().iloc[-1]
-            ma50 = close.rolling(50).mean().iloc[-1]
-            rsi_val = ta.momentum.RSIIndicator(close).rsi().iloc[-1]
-            tech = f"MA20:{ma20:.2f}|MA50:{ma50:.2f}|RSI:{rsi_val:.1f}"
-            trend = "Uptrend" if close.iloc[-1] > ma20 else "Downtrend"
-        else:
+        # Ensure proper Indian stock formatting (.NS for NSE)
+        if "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
+            symbol = f"{symbol}.NS"
+            
+        price_data = get_price_cached(symbol)
+        try:
+            hist = get_yahoo_history(symbol, "3mo")
+            if not hist.empty:
+                close = hist["Close"].squeeze()
+                ma20 = close.rolling(20).mean().iloc[-1]
+                ma50 = close.rolling(50).mean().iloc[-1]
+                rsi_val = ta.momentum.RSIIndicator(close).rsi().iloc[-1]
+                tech = f"MA20:{ma20:.2f}|MA50:{ma50:.2f}|RSI:{rsi_val:.1f}"
+                trend = "Uptrend" if close.iloc[-1] > ma20 else "Downtrend"
+            else:
+                tech, trend = "MA20:N/A|MA50:N/A|RSI:N/A", "Unknown"
+        except Exception as e:
+            logger.warning(f"[NODE 2] Data fetch failed or rate-limited for {symbol}: {e}")
             tech, trend = "MA20:N/A|MA50:N/A|RSI:N/A", "Unknown"
-    except Exception as e:
-        logger.warning(f"[NODE 2] Data fetch failed or rate-limited for {symbol}: {e}")
-        tech, trend = "MA20:N/A|MA50:N/A|RSI:N/A", "Unknown"
+            
+        note = " [cached]" if price_data.get("from_cache") else ""
+        price_val = price_data.get("price")
+        if price_val is not None and not np.isnan(price_val):
+            price_str = f"{price_val:.2f} via {price_data['source']}{note}"
+        else:
+            price_str = "N/A"
+            
+        results.append(f"[{symbol}] Price:{price_str}|Trend:{trend}|{tech}")
         
-    note = " [cached]" if price_data.get("from_cache") else ""
-    price_val = price_data.get("price")
-    if price_val is not None and not np.isnan(price_val):
-        price_str = f"{price_val:.2f} via {price_data['source']}{note}"
-    else:
-        price_str = "N/A"
-        
-    data_result = f"Price:{price_str}|Trend:{trend}|{tech}"
+    data_result = " || ".join(results) if results else "Price:N/A|Trend:Unknown|MA20:N/A|MA50:N/A|RSI:N/A"
     logger.info(f"[NODE 2] {data_result}")
     return {"data_result": data_result, "messages": [HumanMessage(content=data_result)]}
 
@@ -727,31 +734,40 @@ def sentiment_node(state):
 
 def risk_node(state):
     logger.info("[NODE 4] Risk...")
-    symbol = state["symbol"]
+    symbols_raw = state["symbol"].split(",")
+    results = []
     
-    # Ensure proper Indian stock formatting (.NS for NSE)
-    if symbol and "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
-        symbol = f"{symbol}.NS"
+    for raw_sym in symbols_raw:
+        symbol = raw_sym.strip()
+        if not symbol: continue
         
-    try:
-        hist = get_yahoo_history(symbol, "1y")
-        if not hist.empty and len(hist) > 30:
-            ret = hist["Close"].pct_change().dropna()
-            vol = ret.std() * (252**0.5) * 100
-            avg_ret = ret.mean() * 252 * 100
-            sharpe = (avg_ret - 6.5) / (vol if vol > 0 else 1)
-            lvl = "Low" if vol < 20 else "Medium" if vol < 40 else "High"
-            var = float(np.percentile(ret, 5))
-            cvar = float(ret[ret <= var].mean())
-            rr = (f"{lvl} Risk|Vol:{vol:.1f}%|Sharpe:{sharpe:.2f}|Return:{avg_ret:.1f}%"
-                  f"|VaR(95%):{var*100:.2f}%|CVaR(95%):{cvar*100:.2f}%")
-        else:
-            rr = "Risk: Insufficient data"
-    except Exception as e:
-        logger.warning(f"[NODE 4] Risk fetch failed or rate-limited for {symbol}: {e}")
-        rr = "Risk: N/A due to API timeout/error"
-    logger.info(f"[NODE 4] {rr}")
-    return {"risk_result": rr, "messages": [HumanMessage(content=rr)]}
+        # Ensure proper Indian stock formatting (.NS for NSE)
+        if "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
+            symbol = f"{symbol}.NS"
+            
+        try:
+            hist = get_yahoo_history(symbol, "1y")
+            if not hist.empty and len(hist) > 30:
+                ret = hist["Close"].pct_change().dropna()
+                vol = ret.std() * (252**0.5) * 100
+                avg_ret = ret.mean() * 252 * 100
+                sharpe = (avg_ret - 6.5) / (vol if vol > 0 else 1)
+                lvl = "Low" if vol < 20 else "Medium" if vol < 40 else "High"
+                var = float(np.percentile(ret, 5))
+                cvar = float(ret[ret <= var].mean())
+                rr = (f"[{symbol}] {lvl} Risk|Vol:{vol:.1f}%|Sharpe:{sharpe:.2f}|Return:{avg_ret:.1f}%"
+                      f"|VaR(95%):{var*100:.2f}%|CVaR(95%):{cvar*100:.2f}%")
+            else:
+                rr = f"[{symbol}] Risk: Insufficient data"
+        except Exception as e:
+            logger.warning(f"[NODE 4] Risk fetch failed or rate-limited for {symbol}: {e}")
+            rr = f"[{symbol}] Risk: N/A due to API timeout/error"
+            
+        results.append(rr)
+        
+    risk_result = " || ".join(results) if results else "Risk: N/A"
+    logger.info(f"[NODE 4] {risk_result}")
+    return {"risk_result": risk_result, "messages": [HumanMessage(content=risk_result)]}
 
 def decision_node(state):
     logger.info("[NODE 5] Decision...")
