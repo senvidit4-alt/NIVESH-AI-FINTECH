@@ -285,9 +285,49 @@ async def check_alerts_loop():
         except Exception as e:
             logger.warning(f"[ALERT] Loop error: {e}")
 
+async def check_global_alerts_loop():
+    """Background task: generate automatic alerts for major stock movements."""
+    symbols = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "^NSEI", "ZOMATO.NS", "SUZLON.NS", "IRFC.NS", "JIOFIN.NS", "PAYTM.NS", "YESBANK.NS"]
+    names = {"RELIANCE.NS": "Reliance", "TCS.NS": "TCS", "HDFCBANK.NS": "HDFC Bank", "^NSEI": "NIFTY 50", 
+             "ZOMATO.NS": "Zomato", "SUZLON.NS": "Suzlon", "IRFC.NS": "IRFC", "JIOFIN.NS": "Jio Financial",
+             "PAYTM.NS": "Paytm", "YESBANK.NS": "Yes Bank"}
+    
+    await asyncio.sleep(10) # Initial delay
+    while True:
+        try:
+            loop = asyncio.get_event_loop()
+            conn = sqlite3.connect(DB_PATH)
+            for sym in symbols:
+                try:
+                    hist = await loop.run_in_executor(None, get_yahoo_history, sym, "5d")
+                    if not hist.empty and len(hist) >= 2:
+                        prev = hist["Close"].iloc[-2]
+                        curr = hist["Close"].iloc[-1]
+                        chg_pct = ((curr - prev) / prev) * 100
+                        
+                        if abs(chg_pct) >= 1.0: # threshold 1.0% to catch more
+                            alert_type = "🚀 BREAKOUT" if chg_pct > 0 else "📉 CRASH"
+                            name = names.get(sym, sym)
+                            
+                            cur = conn.cursor()
+                            cur.execute("SELECT id FROM global_alerts WHERE symbol=? AND date(created_at) = date('now')", (sym,))
+                            if not cur.fetchone():
+                                cur.execute("INSERT INTO global_alerts (symbol, name, change_pct, price, alert_type) VALUES (?,?,?,?,?)",
+                                            (sym, name, chg_pct, curr, alert_type))
+                                conn.commit()
+                                logger.info(f"[GLOBAL_ALERT] Generated for {sym}: {chg_pct:.2f}%")
+                except Exception:
+                    pass
+            conn.close()
+        except Exception as e:
+            logger.warning(f"[GLOBAL_ALERT] Loop error: {e}")
+            
+        await asyncio.sleep(600)  # Check every 10 minutes
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(check_alerts_loop())
+    asyncio.create_task(check_global_alerts_loop())
     logger.info("[STARTUP] Alert background task started.")
 
 # ── CORS-safe exception handlers ─────────────────────────────
