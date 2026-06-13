@@ -18,6 +18,10 @@ import { formatINR, formatPct } from "@/lib/formatters";
 import api from "@/lib/api";
 import Link from "next/link";
 import { RefreshCw, TrendingUp } from "lucide-react";
+import clsx from "clsx";
+
+// FIXED: WebSocket not connected on Next.js frontend (Imported wsManager)
+import { wsManager } from "@/lib/websocket";
 
 // ── Circular gauge ────────────────────────────────────────────
 function CircularGauge({ value, max = 10, label }: { value: number; max?: number; label: string }) {
@@ -189,6 +193,47 @@ export default function DashboardPage() {
   const [quickLoading, setQuickLoading] = useState(false);
   const staleRef = useRef(false);
 
+  // FIXED: WebSocket connection status React state
+  const [wsStatus, setWsStatus] = useState<"connected" | "disconnected" | "connecting">("disconnected");
+
+  // FIXED: WebSocket connection on mount/unmount and subscription handler
+  useEffect(() => {
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8001/ws/market-updates";
+    wsManager.connect(wsUrl);
+    setWsStatus(wsManager.status);
+
+    const handleWsMessage = (msg: Record<string, any>) => {
+      if (msg.type === "status") {
+        setWsStatus(msg.status as any);
+      } else if (msg.type === "market_update" && msg.data) {
+        // Wire incoming websocket data directly to update UI market summary cards
+        const currentIndices = useMarketStore.getState().indices;
+        if (currentIndices && currentIndices.length) {
+          const updatedIndices = currentIndices.map((idx) => {
+            const update = msg.data[idx.symbol];
+            if (update) {
+              return {
+                ...idx,
+                price: update.price,
+                change_pct: update.change_pct,
+                direction: (update.change >= 0 ? "up" : "down") as "up" | "down",
+              };
+            }
+            return idx;
+          });
+          setIndices(updatedIndices);
+        }
+      }
+    };
+
+    wsManager.subscribe(handleWsMessage);
+
+    return () => {
+      wsManager.unsubscribe(handleWsMessage);
+      wsManager.disconnect();
+    };
+  }, [setIndices]);
+
   const fetchMarket = useCallback(async () => {
     if (staleRef.current) return;
     try {
@@ -247,6 +292,26 @@ export default function DashboardPage() {
     <div>
       <TopBar title="Dashboard" />
       <div className="p-6 space-y-6">
+
+        {/* FIXED: WebSocket connection status indicator banner */}
+        <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800/80 rounded-xl px-4 py-2 text-xs">
+          <span className="text-slate-400 font-medium flex items-center gap-1.5">
+            🌐 Real-time Market Feeds (WebSockets)
+          </span>
+          <div className="flex items-center gap-2">
+            <span className={clsx("w-2 h-2 rounded-full",
+              wsStatus === "connected" ? "bg-emerald-400 animate-pulse" :
+              wsStatus === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-400"
+            )} />
+            <span className={clsx("mono font-bold uppercase tracking-wider",
+              wsStatus === "connected" ? "text-emerald-400" :
+              wsStatus === "connecting" ? "text-amber-400" : "text-red-400"
+            )}>
+              {wsStatus === "connected" ? "Connected" :
+               wsStatus === "connecting" ? "Reconnecting..." : "Disconnected"}
+            </span>
+          </div>
+        </div>
 
         {/* Row 1 — Market Indices */}
         {marketError ? (

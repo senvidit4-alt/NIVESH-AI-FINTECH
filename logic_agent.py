@@ -16,6 +16,7 @@ from langchain_groq import ChatGroq
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 
 # Fix pydantic forward-ref issue on Python 3.13
 try:
@@ -36,6 +37,24 @@ import torch
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from requests.adapters import HTTPAdapter
+class TimeoutHTTPAdapter(HTTPAdapter):
+    def __init__(self, *args, **kwargs):
+        self.timeout = kwargs.pop("timeout", 6.0)
+        super().__init__(*args, **kwargs)
+    def send(self, request, **kwargs):
+        kwargs["timeout"] = kwargs.get("timeout", self.timeout)
+        return super().send(request, **kwargs)
+
+def get_yf_session():
+    session = requests.Session()
+    adapter = TimeoutHTTPAdapter(timeout=6.0)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+YF_SESSION = get_yf_session()
 
 # ── LOGGING ───────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -190,6 +209,12 @@ def init_sqlite():
         direction TEXT NOT NULL,
         triggered INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS price_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        price REAL,
+        source TEXT,
+        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     conn.commit()
     conn.close()
 
@@ -225,9 +250,43 @@ def save_price_snapshot(symbol, price, source):
             cur.execute("INSERT INTO price_snapshots (symbol, price, source) VALUES (%s,%s,%s)",
                         (symbol, price, source))
             conn.commit(); cur.close(); conn.close()
+            return
         except Exception as e:
             logger.warning(f"[DB] Snapshot error: {e}")
             if conn: conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO price_snapshots (symbol, price, source) VALUES (?,?,?)",
+                    (symbol, price, source))
+        conn.commit(); cur.close(); conn.close()
+    except Exception as e:
+        logger.warning(f"[DB SQLite] Snapshot error: {e}")
+
+def get_last_known_price(symbol):
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT price, source FROM price_snapshots WHERE symbol = %s ORDER BY fetched_at DESC LIMIT 1", (symbol,))
+            row = cur.fetchone()
+            cur.close(); conn.close()
+            if row:
+                return {"price": row[0], "source": f"{row[1]} (Last Known)"}
+        except Exception as e:
+            logger.warning(f"[DB] Get last known price error: {e}")
+            if conn: conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT price, source FROM price_snapshots WHERE symbol = ? ORDER BY fetched_at DESC LIMIT 1", (symbol,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row:
+            return {"price": row[0], "source": f"{row[1]} (Last Known)"}
+    except Exception as e:
+        logger.warning(f"[DB SQLite] Get last known price error: {e}")
+    return None
 
 def save_sentiment_to_db(symbol, query, score, label, headlines):
     conn = get_db_connection()
@@ -295,8 +354,8 @@ def _build_llm():
 
     if GROQ_API_KEY:
         try:
-            llm = ChatGroq(model="llama3-70b-8192", temperature=0, api_key=GROQ_API_KEY)
-            logger.info("✅ LLM: Groq llama3-70b (fallback)")
+            llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=GROQ_API_KEY)
+            logger.info("✅ LLM: Groq llama-3.3-70b-versatile (fallback)")
             return llm
         except Exception as e:
             logger.error(f"❌ Groq init failed: {e}")
@@ -366,7 +425,8 @@ def get_news_with_fallback(query: str) -> list:
         return headlines
     logger.info("[NEWS] NewsAPI empty/unavailable, falling back to DuckDuckGo.")
     try:
-        return [r["title"] for r in DDGS().text(query, max_results=6)]
+        with DDGS(timeout=6) as ddgs:
+            return [r["title"] for r in ddgs.text(query, max_results=6)]
     except Exception as e:
         logger.warning(f"[NEWS] DuckDuckGo fallback error: {e}")
         return []
@@ -385,9 +445,11 @@ def fetch_with_retry(func, retries=2, delay=1.0):
     return None
 
 def get_price_yfinance(symbol):
-    data = yf.Ticker(symbol).history(period="5d")
+    data = yf.Ticker(symbol).history(period="5d", timeout=5)
     if data.empty: raise ValueError(f"No yFinance data for {symbol}")
-    return round(float(data["Close"].iloc[-1]), 2)
+    close_prices = data["Close"].dropna()
+    if close_prices.empty: raise ValueError(f"All yFinance close prices are NaN for {symbol}")
+    return round(float(close_prices.iloc[-1]), 2)
 
 def get_price_alpha_vantage(symbol):
     clean = symbol.replace(".NS","").replace(".BO","")
@@ -410,9 +472,16 @@ def get_price_with_fallback(symbol):
                       ("AlphaVantage", lambda: get_price_alpha_vantage(symbol)),
                       ("FMP", lambda: get_price_fmp(symbol))]:
         price = fetch_with_retry(fn)
-        if price:
+        if price is not None and not np.isnan(price):
             logger.info(f"[DATA] {symbol}={price} via {name}")
             return {"price": price, "source": name, "symbol": symbol}
+            
+    # Try DB fallback
+    last_known = get_last_known_price(symbol)
+    if last_known:
+        logger.info(f"[DATA] {symbol}={last_known['price']} via DB Fallback ({last_known['source']})")
+        return {"price": last_known["price"], "source": last_known["source"], "symbol": symbol}
+        
     return {"price": None, "source": "ALL_FAILED", "symbol": symbol}
 
 def get_price_cached(symbol):
@@ -432,7 +501,7 @@ def get_price_cached(symbol):
 # ══════════════════════════════════════════════════════════════
 def calculate_var_cvar(symbol: str, confidence: float = 0.95) -> dict:
     try:
-        hist = yf.Ticker(symbol).history(period="1y")
+        hist = yf.Ticker(symbol).history(period="1y", timeout=5)
         if hist.empty or len(hist) < 30:
             return {"var_95": None, "cvar_95": None, "error": "Insufficient data"}
         returns = hist["Close"].pct_change().dropna()
@@ -474,7 +543,7 @@ def get_stock_price(symbol: str) -> str:
 @tool
 def analyze_stock_trend(symbol: str) -> str:
     """Analyze stock trend using moving average."""
-    data = yf.Ticker(symbol).history(period="1mo")
+    data = yf.Ticker(symbol).history(period="1mo", timeout=5)
     if data.empty: return "No data."
     data["MA5"] = data["Close"].rolling(5).mean()
     trend = "Uptrend" if data["Close"].iloc[-1] > data["MA5"].iloc[-1] else "Downtrend"
@@ -483,7 +552,7 @@ def analyze_stock_trend(symbol: str) -> str:
 @tool
 def technical_analysis(symbol: str) -> str:
     """RSI, MA20, MA50 indicators."""
-    data = yf.Ticker(symbol).history(period="3mo")
+    data = yf.Ticker(symbol).history(period="3mo", timeout=5)
     if data.empty: return f"No data for {symbol}."
     close = data['Close'].squeeze()
     ma20 = close.rolling(20).mean().iloc[-1]
@@ -494,8 +563,8 @@ def technical_analysis(symbol: str) -> str:
 @tool
 def compare_stocks(symbol1: str, symbol2: str) -> str:
     """Compares 1-month performance of two stocks."""
-    s1 = yf.download(symbol1, period="1mo")['Close']
-    s2 = yf.download(symbol2, period="1mo")['Close']
+    s1 = yf.download(symbol1, period="1mo", timeout=5)['Close']
+    s2 = yf.download(symbol2, period="1mo", timeout=5)['Close']
     c1 = ((s1.iloc[-1] - s1.iloc[0]) / s1.iloc[0]) * 100
     c2 = ((s2.iloc[-1] - s2.iloc[0]) / s2.iloc[0]) * 100
     winner = symbol1 if c1 > c2 else symbol2
@@ -545,6 +614,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, operator.add]
     research_result: str; data_result: str
     sentiment_result: str; risk_result: str; final_answer: str
+    chat_history: list
 
 def research_node(state):
     logger.info("[NODE 1] Research...")
@@ -554,15 +624,21 @@ def research_node(state):
     ])
     symbol = msg.content.strip().upper()
     logger.info(f"[NODE 1] Symbol: {symbol}")
-    return {**state, "symbol": symbol, "research_result": f"Symbol: {symbol}",
+    return {"symbol": symbol, "research_result": f"Symbol: {symbol}",
             "messages": [HumanMessage(content=f"Symbol: {symbol}")]}
 
 def data_fetch_node(state):
     logger.info("[NODE 2] Data fetch...")
     symbol = state["symbol"]
+    
+    # Ensure proper Indian stock formatting (.NS for NSE)
+    if symbol and "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
+        symbol = f"{symbol}.NS"
+        
     price_data = get_price_cached(symbol)
     try:
-        hist = yf.Ticker(symbol).history(period="3mo")
+        hist = yf.Ticker(symbol).history(period="3mo", timeout=5)
+        hist = hist.dropna(subset=["Close"])
         if not hist.empty:
             close = hist["Close"].squeeze()
             ma20 = close.rolling(20).mean().iloc[-1]
@@ -571,15 +647,21 @@ def data_fetch_node(state):
             tech = f"MA20:{ma20:.2f}|MA50:{ma50:.2f}|RSI:{rsi_val:.1f}"
             trend = "Uptrend" if close.iloc[-1] > ma20 else "Downtrend"
         else:
-            tech, trend = "No data", "Unknown"
+            tech, trend = "MA20:N/A|MA50:N/A|RSI:N/A", "Unknown"
     except Exception as e:
-        tech, trend = f"Error:{e}", "Unknown"
+        logger.warning(f"[NODE 2] Data fetch failed or rate-limited for {symbol}: {e}")
+        tech, trend = "MA20:N/A|MA50:N/A|RSI:N/A", "Unknown"
+        
     note = " [cached]" if price_data.get("from_cache") else ""
-    price_str = f"{price_data['price']:.2f} via {price_data['source']}{note}" if price_data["price"] else "N/A"
+    price_val = price_data.get("price")
+    if price_val is not None and not np.isnan(price_val):
+        price_str = f"{price_val:.2f} via {price_data['source']}{note}"
+    else:
+        price_str = "N/A"
+        
     data_result = f"Price:{price_str}|Trend:{trend}|{tech}"
     logger.info(f"[NODE 2] {data_result}")
-    return {**state, "data_result": data_result,
-            "messages": [HumanMessage(content=data_result)]}
+    return {"data_result": data_result, "messages": [HumanMessage(content=data_result)]}
 
 def sentiment_node(state):
     logger.info("[NODE 3] Sentiment...")
@@ -594,15 +676,22 @@ def sentiment_node(state):
         else:
             sr = "Sentiment: No news"
     except Exception as e:
-        sr = f"Sentiment: Error - {e}"
+        logger.warning(f"[NODE 3] Sentiment fetch failed for {symbol}: {e}")
+        sr = f"Sentiment: N/A due to API timeout/error"
     logger.info(f"[NODE 3] {sr}")
-    return {**state, "sentiment_result": sr, "messages": [HumanMessage(content=sr)]}
+    return {"sentiment_result": sr, "messages": [HumanMessage(content=sr)]}
 
 def risk_node(state):
     logger.info("[NODE 4] Risk...")
     symbol = state["symbol"]
+    
+    # Ensure proper Indian stock formatting (.NS for NSE)
+    if symbol and "." not in symbol and symbol not in ["NIFTY50", "SENSEX", "^NSEI", "^BSESN"]:
+        symbol = f"{symbol}.NS"
+        
     try:
-        hist = yf.Ticker(symbol).history(period="1y")
+        hist = yf.Ticker(symbol).history(period="1y", timeout=5)
+        hist = hist.dropna(subset=["Close"])
         if not hist.empty and len(hist) > 30:
             ret = hist["Close"].pct_change().dropna()
             vol = ret.std() * (252**0.5) * 100
@@ -616,23 +705,74 @@ def risk_node(state):
         else:
             rr = "Risk: Insufficient data"
     except Exception as e:
-        rr = f"Risk: Error - {e}"
+        logger.warning(f"[NODE 4] Risk fetch failed or rate-limited for {symbol}: {e}")
+        rr = "Risk: N/A due to API timeout/error"
     logger.info(f"[NODE 4] {rr}")
-    return {**state, "risk_result": rr, "messages": [HumanMessage(content=rr)]}
+    return {"risk_result": rr, "messages": [HumanMessage(content=rr)]}
 
 def decision_node(state):
     logger.info("[NODE 5] Decision...")
-    prompt = f"""Elite Indian financial analyst. Synthesize:
-Query: {state['query']} | Symbol: {state['symbol']}
-Data: {state['data_result']}
-Sentiment: {state['sentiment_result']}
-Risk: {state['risk_result']}
+    
+    system_prompt = """You are Nivesh AI — a confident, sharp SEBI-registered analyst who speaks to users like a trusted friend who happens to be a financial expert. You are brutally honest, proactively insightful, and never give vague answers.
 
-Give: 1.Quick Summary 2.Key Strengths 3.Key Risks 4.Outlook(Bullish/Bearish/Neutral)
-End: Not financial advice."""
-    msg = llm.invoke([HumanMessage(content=prompt)])
+=========================================
+RESPONSE TYPES — Use the Right Format Automatically
+=========================================
+TYPE 1 — STOCK ANALYSIS:
+Structure: 📊 [Stock Name] | ₹[Price] | [Trend ↑/↓]
+- Quick Summary (2 lines)
+- Strengths: bullet points
+- Risks: bullet points
+- Outlook: Bullish/Bearish/Neutral with confidence %
+- Risk Profile: Vol, Sharpe, VaR
+- End: ⚠️ Not financial advice.
+
+=========================================
+DYNAMIC TABLE GENERATION PROTOCOL (MANDATORY)
+=========================================
+When ANY response contains 2+ comparable dimensions, auto-render a structured markdown table. NEVER list data as plain text when a table would be clearer.
+
+=========================================
+LANGUAGE HARMONY (MANDATORY)
+=========================================
+Auto-detect the user's language blend and mirror it EXACTLY:
+- Hinglish (most common) → Match their exact blend: "Reliance ka RSI 72 hai, thoda overbought lag raha hai — but fundamentals strong hain 💪"
+- Technical terms (RSI, VaR, Sharpe) stay in English always.
+- Emojis: use naturally, not excessively (2-4 per response max).
+
+=========================================
+PERSONALITY — Confident SEBI Analyst as a Friend
+=========================================
+- Direct: Give answers, not questions.
+- Empathetic: Acknowledge market anxiety.
+- Honest: If data is unavailable, say "Real-time data nahi mila, but based on last close..." — don't make things up.
+- Formatting: Use markdown (bold, tables, bullets)."""
+
+    # Ensure robust history extraction (handling both dicts and objects)
+    history_lines = []
+    for msg in state.get("chat_history", [])[-4:]:
+        role = msg.get("role", "user") if isinstance(msg, dict) else getattr(msg, "role", "user")
+        content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+        history_lines.append(f"{role.capitalize()}: {content}")
+    history_text = "\n".join(history_lines)
+
+    user_content = f"""PREVIOUS CONVERSATION HISTORY:
+{history_text}
+
+CURRENT QUERY: {state['query']}
+SYMBOL DETECTED: {state['symbol']}
+DATA: {state['data_result']}
+SENTIMENT: {state['sentiment_result']}
+RISK: {state['risk_result']}
+
+CRITICAL INSTRUCTION: If the CURRENT QUERY is a follow-up asking to compare previous stocks (e.g., "dono me se better kaun hai"), you MUST IGNORE the SYMBOL DETECTED and DATA if it defaulted to NIFTY50. Instead, extract the prices and metrics for the two stocks directly from the PREVIOUS CONVERSATION HISTORY and generate a side-by-side comparison table."""
+
+    msg = llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_content)
+    ])
     logger.info("[NODE 5] Done.")
-    return {**state, "final_answer": msg.content, "messages": [HumanMessage(content=msg.content)]}
+    return {"final_answer": msg.content, "messages": [HumanMessage(content=msg.content)]}
 
 def build_financial_graph():
     g = StateGraph(AgentState)
@@ -642,10 +782,13 @@ def build_financial_graph():
     g.add_node("risk",       risk_node)
     g.add_node("decision",   decision_node)
     g.set_entry_point("research")
-    g.add_edge("research","data_fetch"); g.add_edge("data_fetch","sentiment")
-    g.add_edge("sentiment","risk");      g.add_edge("risk","decision")
+    g.add_edge("research", "data_fetch")
+    g.add_edge("data_fetch", "sentiment")
+    g.add_edge("sentiment", "risk")
+    g.add_edge("risk", "decision")
     g.add_edge("decision", END)
-    return g.compile()
+    memory = MemorySaver()
+    return g.compile(checkpointer=memory)
 
 financial_graph = build_financial_graph()
 logger.info("LangGraph 5-node pipeline compiled successfully.")
@@ -653,14 +796,16 @@ logger.info("LangGraph 5-node pipeline compiled successfully.")
 # ══════════════════════════════════════════════════════════════
 #  11. MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════
-def financial_agent(query: str) -> str:
+def financial_agent(query: str, thread_id: str = "default_user", chat_history: list = None) -> str:
     try:
         logger.info(f"[GRAPH] Starting: {query}")
+        config = {"configurable": {"thread_id": thread_id}}
         result = financial_graph.invoke({
-            "query": query, "symbol": "", "messages": [],
+            "query": query, "symbol": "",
             "research_result": "", "data_result": "",
-            "sentiment_result": "", "risk_result": "", "final_answer": ""
-        })
+            "sentiment_result": "", "risk_result": "", "final_answer": "",
+            "chat_history": chat_history or []
+        }, config=config)
         run_id = result.get("run_id", "N/A")
         logger.info(f"[GRAPH] Complete. run_id={run_id}")
         return result["final_answer"]

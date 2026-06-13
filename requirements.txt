@@ -5,6 +5,8 @@ uvicorn==0.29.0
 langchain-groq==0.1.3
 langchain-anthropic==0.1.23
 langchain-openai==0.1.17
+langchain-google-genai==1.0.6
+google-generativeai
 langgraph==0.0.55
 langchain-core==0.2.0
 

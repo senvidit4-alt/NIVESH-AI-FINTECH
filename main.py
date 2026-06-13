@@ -46,6 +46,7 @@ except ImportError:
     HAS_FINBERT = False
 
 NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
+ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "JSBGLZIUF8OSK4VW")
 
 # ── Module-level FinBERT singleton (loaded once, not per agent call) ──
 @st.cache_resource
@@ -139,7 +140,7 @@ def get_stock_price(symbol: str) -> str:
     # Track B Enhancement: Fallback to AlphaVantage
     try:
         clean_sym = symbol.replace(".NS", "").replace(".BO", "")
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={clean_sym}&apikey=demo"
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={clean_sym}&apikey={ALPHA_VANTAGE_KEY}"
         av_data = requests.get(url, timeout=5).json()
         av_price = av_data.get("Global Quote", {}).get("05. price")
         if av_price:
@@ -690,11 +691,25 @@ def build_returns_bar(symbols: list) -> go.Figure:
 # ─────────────────────────────────────────────
 
 def build_agent(api_key: str):
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        api_key=api_key,
-    )
+    if api_key:
+        os.environ["GROQ_API_KEY"] = api_key
+
+    def _build_llm():
+        if os.environ.get("GOOGLE_API_KEY"):
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                return ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+            except Exception:
+                pass
+        if os.environ.get("OPENAI_API_KEY"):
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+        if os.environ.get("GROQ_API_KEY"):
+            from langchain_groq import ChatGroq
+            return ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        raise RuntimeError("No LLM key found")
+
+    llm = _build_llm()
     # FinBERT is loaded once at module level via @st.cache_resource
 
     @tool
@@ -798,6 +813,15 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+# Auto-initialize agent if keys are present in the environment
+if st.session_state.agent is None:
+    if os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("GROQ_API_KEY"):
+        try:
+            st.session_state.agent = build_agent("")
+            st.session_state.api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────
@@ -1150,7 +1174,7 @@ with tab_portfolio:
 
         st.dataframe(
             df_table.style
-                .applymap(color_change, subset=["Day Change %"])
+                .map(color_change, subset=["Day Change %"])  # FIXED: .applymap() deprecated in pandas 2.x
                 .format({"Price": "{:.2f}", "Value": "{:,.2f}", "Avg Buy": "{:.2f}",
                          "P&L": "{:+,.2f}", "Day Change %": "{:+.2f}%"}, na_rep="—"),
             use_container_width=True,

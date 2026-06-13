@@ -1,0 +1,12 @@
+exclude = [".agents"]
+
+[lint]
+ignore = [
+    "E402",  # Module level import not at top of file
+    "E701",  # Multiple statements on one line (colon)
+    "E702",  # Multiple statements on one line (semicolon)
+    "F401",  # Unused imports
+    "F841",  # Unused local variables
+    "E722",  # Do not use bare except
+    "E401"   # Multiple imports on one line
+]
