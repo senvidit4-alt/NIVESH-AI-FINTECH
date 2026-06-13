@@ -456,7 +456,7 @@ def get_price_yfinance(symbol):
     try:
         url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
-        r = requests.get(url, headers=headers, timeout=5)
+        r = YF_SESSION.get(url, headers=headers, timeout=5)
         r.raise_for_status()
         data = r.json()
         result = data.get("chart", {}).get("result", [])
@@ -466,7 +466,7 @@ def get_price_yfinance(symbol):
         return round(float(price), 2)
     except Exception as e:
         logger.warning(f"Direct Yahoo request failed for {symbol}: {e}")
-        data = yf.Ticker(symbol).history(period="5d", timeout=5)
+        data = yf.Ticker(symbol, session=YF_SESSION).history(period="5d")
         if data.empty: raise ValueError(f"No yFinance data for {symbol}")
         close_prices = data["Close"].dropna()
         if close_prices.empty: raise ValueError(f"All yFinance close prices are NaN for {symbol}")
@@ -519,10 +519,10 @@ def get_price_cached(symbol):
 
 def get_yahoo_history(symbol, range="1y"):
     try:
-        import requests, pandas as pd
+        import pandas as pd
         url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={range}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        r = requests.get(url, headers=headers, timeout=5)
+        r = YF_SESSION.get(url, headers=headers, timeout=5)
         r.raise_for_status()
         data = r.json().get("chart", {}).get("result", [])
         if not data: return pd.DataFrame()
@@ -533,8 +533,8 @@ def get_yahoo_history(symbol, range="1y"):
         return df.dropna()
     except Exception as e:
         try:
-            import yfinance as yf
-            return yf.Ticker(symbol).history(period=range, timeout=5).dropna(subset=["Close"])
+            import yfinance as yf, pandas as pd
+            return yf.Ticker(symbol, session=YF_SESSION).history(period=range).dropna(subset=["Close"])
         except:
             return pd.DataFrame()
 
